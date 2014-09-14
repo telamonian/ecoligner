@@ -44,10 +44,9 @@ class Shape(object):
 #     _fig = plt.figure(1)
 #     _ax0 = plt.subplot(gridspec.GridSpec(1,1,wspace=0.15,hspace=0.07)[0,0])
     
-    def __init__(self, points, close=False):
+    def __init__(self, points):
         self.points = np.array(points)
         self.CalcDist()
-        self.close = close
         self.GenSegs()
     
     @property
@@ -61,13 +60,6 @@ class Shape(object):
     @property
     def ax0(self):
         return _ax0
-    
-    def GenSegs(self):
-        self.segs = []
-        for pa,pb in zip(self.points[:-1], self.points[1:]):
-            self.segs.append(Seg(pa, pb))
-        if self.close:
-            self.segs.append(Seg(self.points[-1], self.points[0]))
             
     def CalcDist(self):
         dists = []
@@ -76,6 +68,26 @@ class Shape(object):
         self.maxDist = np.max(dists)
         self.avgDist = np.mean(dists)
         self.stdDist = np.std(dists)
+        
+    def GenSegs(self, close=False, segLen=-1):
+        '''
+        segLen is the length of the walk that makes up one of the Shape's segs.
+        -1=inf (closed shape), 0=point, 1=line segment, 2=two joined segments, etc.
+        '''
+        self.close = close
+        self.segLen = segLen
+        self.segs = []
+        if self.segLen < -1:
+            for pa,pb in zip(self.points[:-1], self.points[1:]):
+                self.segs.append(Seg(pa, pb))
+            if self.close:
+                self.segs.append(Seg(self.points[-1], self.points[0]))
+        elif self.segLen==0:
+            pass
+        else:
+            for i in range(len(self.points))[::self.segLen+1]:
+                for j in range(self.segLen):
+                    self.segs.append(Seg(*self.points[i+j:i+j+1]))
         
     def GetClosest(self, other):
         '''return a list, length len(self.points), of pairs of closest points in self, other in format [[self index, other index], ...]'''
@@ -226,6 +238,9 @@ class ContourShape(Shape):
         res = c.trace(.5)
         super(self.__class__, self).__init__(res[0][...,::-1], close=True)
     
+    def GenSegs(self):
+        super(self.__class__, self).GenSegs(close=True)
+    
     def PlotGrid(self, dims, background):
         super(self.__class__, self).PlotGrid(dims, background, transpose=False)
         
@@ -262,6 +277,9 @@ class CenterShape(Shape):
 class PoleShape(Shape):
     def __init__(self, points):
         super(self.__class__, self).__init__(points)
+        
+    def GenSegs(self):
+        super(self.__class__, self).GenSegs(segLen=0)
 
     def GetGrid(self, dims):
         return super(self.__class__, self).GetGrid(dims, transpose=False)
@@ -316,6 +334,8 @@ class RibsShape(object):
 #             ax1.imshow(background + 1000*skeletonize(msnake.levelset), cmap=ppl.cm.gray)
 #             ax_u.set_data(msnake.levelset)
 #             fig.canvas.draw()
+    def GenSegs(self):
+        super(self.__class__, self).GenSegs(segLen=1)
 
 class CapsuleShape(Shape):
     def __init__(self, points):
