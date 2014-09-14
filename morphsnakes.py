@@ -22,7 +22,7 @@ module. They implement the Morphological Geodesic Active Contours and the
 Morphological Active Contours without Edges, respectively. See the
 aforementioned paper for full details.
 
-See colalign.py for examples of usage.
+See cocoligny for examples of usage.
 """
 
 __author__ = "P. Márquez Neila <p.mneila@upm.es>"
@@ -377,18 +377,21 @@ def evolve_visual(msnake, levelset=None, num_iters=20, background=None, outfile=
                 centerdict[xy[0]] = xy[1]
         centerline = centerdict.items()
         centerline.sort()
-        tck = interpolate.splrep(zip(*centerline[len(centerline)/4:-len(centerline)/4])[0], zip(*centerline[len(centerline)/4:-len(centerline)/4])[1],k=1,s=100)
-        xnew = np.arange(0,40,40.0/200)
-        ynew = interpolate.splev(xnew, tck, der=0)
-        splineLine = map(np.array, zip(xnew,ynew))
-        spline = ax1.plot(xnew, ynew, 'b')
-        
-        #code to make/show points of intersection of cell boundary and centerspline
-        centershape = shape.Shape(zip(xnew,ynew))
-        boundshape = shape.Shape(ax1.collections[0].get_paths()[0].vertices)
-        inters =  centershape.GetIntersect(boundshape)
-        if len(inters)>1:
-            intersections = ax1.scatter((inters[0][0],inters[1][0]),(inters[0][1],inters[1][1]), s=100,c='g')
+        try:
+            tck = interpolate.splrep(zip(*centerline[len(centerline)/4:-len(centerline)/4])[0], zip(*centerline[len(centerline)/4:-len(centerline)/4])[1],k=1,s=100)
+            xnew = np.arange(0,40,40.0/200)
+            ynew = interpolate.splev(xnew, tck, der=0)
+            splineLine = map(np.array, zip(xnew,ynew))
+            spline = ax1.plot(xnew, ynew, 'b')
+            
+            #code to make/show points of intersection of cell boundary and centerspline
+            centershape = shape.Shape(zip(xnew,ynew))
+            boundshape = shape.Shape(ax1.collections[0].get_paths()[0].vertices)
+            inters =  centershape.GetIntersect(boundshape)
+            if len(inters)>1:
+                intersections = ax1.scatter((inters[0][0],inters[1][0]),(inters[0][1],inters[1][1]), s=100,c='g')
+        except TypeError:
+            pass
         
         #code to make/crop/show ribs
         if i>15:

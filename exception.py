@@ -5,3 +5,6 @@ Created on Jun 26, 2014
 '''
 class SegInitError(Exception):
     pass
+
+class SegAccessError(Exception):
+    pass
