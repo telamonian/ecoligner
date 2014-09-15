@@ -140,10 +140,10 @@ class Frame(np.ndarray):
         self.poles = shape.PoleShape(self.contour.GetIntersect(self.centerLine))
     
     def AddRibs(self):
-        self.ribs = shape.RibsShape(self.levelset, self.centerLine, self.poles)
+        self.ribs = shape.RibsShape(self.contour, self.centerLine, self.poles)
     
     def AddCapsule(self):
-        pass
+        self.capsule = shape.CapsuleShape(self.poles, self.ribs)
 
     def AddContour1(self):
         num_iters = 5
@@ -199,38 +199,19 @@ class Frame(np.ndarray):
         self.AddContour()
         self.AddCenterline()
         self.AddPoles()
+        self.AddRibs()
+        self.AddCapsule()
         
     def Plot(self):
         shape.SetBackground(self)
         self.contour.PlotSegs()
         self.centerLine.PlotSegs()
         self.poles.PlotPoints()
+        self.ribs.PlotSegs()
+        self.capsule.PlotSegs()
         shape.ShowPlot()
     
 if __name__=='__main__':
     cell = Cell('exampledata/cell5')
     cell.bf[1][0].Segment()
     cell.bf[1][0].Plot()
-#     cell.bf[1][0].AddContour()
-#     cell.bf[1][0].AddCenterline()
-#     cell.bf[1][0].AddPoles()
-#     cell.bf[1][0].AddRibs()
-#     print cell.bf[1][0].levelset
-#     cell.bf[1][0].contour.PlotSegs()
-#     cell.bf[1][0].centerLine.PlotSegs()
-#     shape.Shape.ax0.set_xlim((0,40))
-#     shape.Shape.ax0.set_ylim((0,40))
-#     shape._plt.show()
-#     cell.bf[1][0].contour.PlotGrid((40,40), background=cell.bf[1][0])
-#     cell.bf[1][0].centerLine.PlotGrid((40,40))
-#     cell.bf[1][0].poles.PlotGrid((40,40))
-#     for rib in cell.bf[1][0].ribs.ribList:
-#         rib.PlotGrid((40,40))
-#     shape.Shape.plt.show()
-#     print cell.bf[1][0].contour.GetGrid((40,40))
-#     cell.bf[1][0].contour.PlotGrid((40,40), background=cell.bf[1][0])
-#     print cell.bf[1][0].centerLine.GetGrid((40,40))
-#     cell.bf[1][0].centerLine.PlotGrid((40,40), background=cell.bf[1][0])
-#     print cell.bf[1][0].pole.GetGrid((40,40))
-    #cell.bf[1][0].Addcontour1()
-    #ppl.show()

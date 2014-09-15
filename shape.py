@@ -3,14 +3,14 @@ Created on Jun 24, 2014
 
 @author: tel
 '''
-import math, itertools
-import numpy as np
-from matplotlib import pyplot as __plt
+import itertools
+import math
+from matplotlib import _cntr as cntr
 import matplotlib.gridspec as gridspec
+from matplotlib import pyplot as __plt
+import numpy as np
 from scipy import interpolate
 from skimage.morphology import skeletonize
-import exception
-from matplotlib import _cntr as cntr
 
 _plt = __plt
 _fig = _plt.figure(1)
@@ -22,21 +22,6 @@ def SetBackground(background):
 def ShowPlot():
     _plt.show()
 
-class SharedPltMetaclass(type): 
-    def __new__(cls, clsname, bases, dct):
-        figx = 12
-        figy = 10
-        #fig = plt.figure(figsize=(figx*len(args)/2,figy))
-        dct['_fig'] = plt.figure(1)
-        gs = gridspec.GridSpec(1,1)
-        gs.update(wspace=0.15, hspace=0.07)
-        dct['_plt'] = plt
-        dct['_ax0'] = plt.subplot(gs[0, 0])
-
-        #return type.__new__(cls, clsname, bases, dct)
-        #return super(cls.__class__, cls).__new__(cls, clsname, bases, dct)
-        return super(SharedPltMetaclass, cls).__new__(cls, clsname, bases, dct)
-
 class Shape(object):
 #     __metaclass__ = SharedPltMetaclass
     
@@ -44,10 +29,15 @@ class Shape(object):
 #     _fig = plt.figure(1)
 #     _ax0 = plt.subplot(gridspec.GridSpec(1,1,wspace=0.15,hspace=0.07)[0,0])
     
+    close = False
+    # segLen is the length of the walk that makes up one of the Shape's segs.
+    # -1=inf (closed shape), 0=point, 1=line segment, 2=two joined segments, etc.
+    segLen = -1
+    
     def __init__(self, points):
         self.points = np.array(points)
-        self.CalcDist()
         self.GenSegs()
+        self.CalcDist()
     
     @property
     def plt(self):
@@ -62,22 +52,23 @@ class Shape(object):
         return _ax0
             
     def CalcDist(self):
-        dists = []
-        for pa, pb in zip(self.points[:-1], self.points[1:]):
-            dists.append(self.Dist(pa,pb))
-        self.maxDist = np.max(dists)
-        self.avgDist = np.mean(dists)
-        self.stdDist = np.std(dists)
+        if self.segLen==0:
+            self.maxDist = 0
+            self.avgDist = 0
+            self.stdDist = 0
+        else:
+            dists = []
+            for seg in self.segs:
+                dists.append(seg.length)
+#             for pa, pb in zip(self.points[:-1], self.points[1:]):
+#                 dists.append(self.Dist(pa,pb))
+            self.maxDist = np.max(dists)
+            self.avgDist = np.mean(dists)
+            self.stdDist = np.std(dists)
         
-    def GenSegs(self, close=False, segLen=-1):
-        '''
-        segLen is the length of the walk that makes up one of the Shape's segs.
-        -1=inf (closed shape), 0=point, 1=line segment, 2=two joined segments, etc.
-        '''
-        self.close = close
-        self.segLen = segLen
+    def GenSegs(self):
         self.segs = []
-        if self.segLen < -1:
+        if self.segLen < 0:
             for pa,pb in zip(self.points[:-1], self.points[1:]):
                 self.segs.append(Seg(pa, pb))
             if self.close:
@@ -87,7 +78,7 @@ class Shape(object):
         else:
             for i in range(len(self.points))[::self.segLen+1]:
                 for j in range(self.segLen):
-                    self.segs.append(Seg(*self.points[i+j:i+j+1]))
+                    self.segs.append(Seg(*self.points[i+j:i+j+2]))
         
     def GetClosest(self, other):
         '''return a list, length len(self.points), of pairs of closest points in self, other in format [[self index, other index], ...]'''
@@ -129,6 +120,7 @@ class Shape(object):
     def GetLength(self, i1, i2):
         '''gives the length of the line segments between points with index i1 and i2'''
         ret = 0
+        i1,i2 = sorted((i1,i2))
         for seg in self.segs[i1:i2]:
             ret+=seg.length
         return ret
@@ -142,20 +134,15 @@ class Shape(object):
             self.plt.imshow(background, cmap=_plt.cm.gray, origin='lower')
         self.plt.show()
     
-    def PlotPoints(self, radius=.7):
+    def PlotPoints(self, radius=.7, fc='g'):
         for point in self.points:
-            circle = _plt.Circle(point, radius)
+            circle = _plt.Circle(point, radius, fc=fc)
             self.ax0.add_patch(circle)
     
     def PlotSegs(self):
         for seg in self.segs:
-            line = _plt.Line2D(*zip(*seg))
+            line = _plt.Line2D(*zip(*seg)[:2])
             self.ax0.add_line(line)
-    
-    def PlotMyGrid(self, dims):
-        for seg in self.segs:
-            self.plt.plot(*zip(*seg), c='r')
-#         self.__class__.plt.show()
      
     def IsClosed(self):
         return self.segs[-1].a==self.points[-1] and self.segs[-1].b==self.points[0]
@@ -168,88 +155,31 @@ class Shape(object):
         return self.IsClosed() or self.Dist(self.points[0], self.points[-1]) < self.avgDist + 2*self.stdDist
     
     @staticmethod
+    def ListMidIndices(lis, denominator):
+        '''gives the indices for the middle fraction of a list'''
+        step = len(lis)
+        return int((step/denominator)*(denominator/2)), int((step/denominator)*(denominator/2 + 1))
+    
+    @staticmethod
     def Dist(a, b):
-        return np.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
-    
-class Seg(object):
-    def __init__(self, *args):
-        if len(args)==2 and hasattr(args[0], "__getitem__") and hasattr(args[1], "__getitem__"):
-            self.a = np.array(args[0])
-            self.b = np.array(args[1])
-        elif len(args==4):
-            try:
-                args = map(float, args)
-            except ValueError or TypeError:
-                raise exception.SegInitError('one of the four args passed to Seg was not a number. Your args were %s' % args)
-            self.a = np.array(args[:2])
-            self.b = np.array(args[2:])
-        else:
-            raise exception.SegInitError('the arguments passed to Seg should either be two lists of two floats ((xa,ya),(xb,yb)) or four floats (xa,yb,xb,yb). Your args were %s' % args)
-        self.CalcLength()
-    
-    def CalcLength(self):
-        self.length = Shape.Dist(self.a, self.b)
-    
-    def GetIntersect(self, other):
-        '''test if two Seg objects intersect. Returns an array of coordinates if they do, and False otherwise. lord help you if they overlap instead. adapted from http://stackoverflow.com/q/563198/425458'''
-        rcrosss = float(np.cross((self.b - self.a), (other.b - other.a)))
-        if not rcrosss:
-            return False
-        t = np.cross((other.a - self.a),((other.b - other.a)))/rcrosss
-        u = np.cross((other.a - self.a),(self.b - self.a))/rcrosss
-        if (0<=t<=1) and (0<=u<=1):
-            return self.a + t*(self.b - self.a)
-        else:
-            return False
-        
-    def __getitem__(self, i):
-        if i==0:
-            return self.a
-        elif i==1:
-            return self.b
-        else:
-            raise exception.SegAccessError
-        
-    def __setitem__(self, i, val):
-        if i==0:
-            self.a = val
-        elif i==1:
-            self.b = val
-        else:
-            raise exception.SegAccessError
-        
-    def __iter__(self):
-        for i in range(2):
-            yield self[i]
-    
-    def __repr__(self):
-        return str([p for p in self])
-    
-    def __str__(self):
-        return str(self.__repr__())
-    
-    def __add__(self, other):
-        return self.__repr__() + other
-        
+        return np.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)    
+       
 class ContourShape(Shape):
+    close = True
+    
     def __init__(self, levelset):
         x,y = np.mgrid[:levelset.shape[0],:levelset.shape[1]]
         c = cntr.Cntr(x,y,levelset)
         res = c.trace(.5)
-        super(self.__class__, self).__init__(res[0][...,::-1], close=True)
-    
-    def GenSegs(self):
-        super(self.__class__, self).GenSegs(close=True)
+        super(self.__class__, self).__init__(res[0][...,::-1])
     
     def PlotGrid(self, dims, background):
         super(self.__class__, self).PlotGrid(dims, background, transpose=False)
-        
-    def PlotGridShared(self, dims, background):
-        super(self.__class__, self).PlotGridShared(dims, background, transpose=False)
 
 class CenterShape(Shape):
     def __init__(self, levelset):
         x,y = [],[]
+#         SetBackground(skeletonize(levelset))
         it = np.nditer(skeletonize(levelset), flags=['multi_index'])
         while not it.finished:
             if it[0]:
@@ -260,13 +190,15 @@ class CenterShape(Shape):
         y.reverse()
         zipped = zip(x,y)
         zipped.sort()
-        centerdict = {}
+        centerDict = {}
         for xy in zipped:
-            if not xy[0] in centerdict:
-                centerdict[xy[0]] = xy[1]
-        centerline = centerdict.items()
-        centerline.sort()
-        tck = interpolate.splrep(zip(*centerline[len(centerline)/4:-len(centerline)/4])[0], zip(*centerline[len(centerline)/4:-len(centerline)/4])[1],k=1,s=100)
+            if not xy[0] in centerDict:
+                centerDict[xy[0]] = xy[1]
+        centerLine = centerDict.items()
+        centerLine.sort()
+        centerLine = zip(*centerLine)
+        cLMI = centerLineMidIndices = Shape.ListMidIndices(centerLine[0], denominator=1.8)
+        tck = interpolate.splrep(centerLine[0][cLMI[0]:cLMI[1]], centerLine[1][cLMI[0]:cLMI[1]], k=1, s=100)
         xnew = np.arange(-10,np.max(levelset.shape)+10,(np.max(levelset.shape)+20)/200.0)
         ynew = interpolate.splev(xnew, tck, der=0)
         super(self.__class__, self).__init__(zip(xnew,ynew))
@@ -275,30 +207,24 @@ class CenterShape(Shape):
         return super(self.__class__, self).GetGrid(dims, transpose=True)
         
 class PoleShape(Shape):
+    segLen = 1
+    
     def __init__(self, points):
+        points.sort(key=lambda x:np.sqrt(np.dot(x,x)))
         super(self.__class__, self).__init__(points)
-        
-    def GenSegs(self):
-        super(self.__class__, self).GenSegs(segLen=0)
 
-    def GetGrid(self, dims):
-        return super(self.__class__, self).GetGrid(dims, transpose=False)
-
-class RibShape(Shape):
-    def __init__(self, points):
-        super(self.__class__, self).__init__(points)
-        
-    def GetGrid(self, dims):
-        return super(self.__class__, self).GetGrid(dims, transpose=True)
-
-class RibsShape(object):    
+class RibsShape(Shape):
+    segLen = 1
+    
     def __init__(self, contourShape, centerShape, poleShape, ribSpacing=1):
-        #find the explicit points on the center spline closest to the pole points
+        # find the explicit points on the center spline closest to the pole points
         poleCenterInterIndexes = poleShape.GetClosest(centerShape)
+        poleCenterInterIndexes.sort(key=lambda x:x[1])
         splineInCellLength = centerShape.GetLength(poleCenterInterIndexes[0][1], poleCenterInterIndexes[1][1])
         ribCount = int(splineInCellLength/ribSpacing) - 1
         ribSep = splineInCellLength/float(ribCount)
         ribCen, ribSlope = [],[]
+        # walk along the centerline and place ribs
         distTravelled = 0
         sI = poleCenterInterIndexes[0][1] #sI -> splineIndex
         for i in range(ribCount):
@@ -311,36 +237,46 @@ class RibsShape(object):
             distTravelled = (distTravelled - ribSep)
         if len(ribCen)>0:
             riblongs = []
-            riblongplots = []
-            #draw long ribs
+            # draw long ribs
             for i,rc in enumerate(ribCen):
                 xa,ya = rc + np.array((40,40*ribSlope[i]))
                 xb,yb = rc - np.array((40,40*ribSlope[i]))
                 riblongs.append(Shape(((xa,ya),(xb,yb))))
-#                 riblongplots.append(ax1.plot((xa,xb), (ya,yb), c='y'))
-#             ax1.imshow(background + 1000*skeletonize(msnake.levelset), cmap=ppl.cm.gray)
-#             ax_u.set_data(msnake.levelset)
-#             fig.canvas.draw()
             
-            #crop the ribs so that they don't extend beyond the cell contour
-            self.ribList = []
-            for riblong,riblongplot in zip(riblongs,riblongplots):
+            # crop the ribs so that they don't extend beyond the cell contour
+            ribs = []
+            for riblong in riblongs:
                 inter = riblong.GetIntersect(contourShape)
-#                 riblongplot.pop(0).remove()
-                self.ribList.append(RibShape(inter))
-#                 ribx = (inter[0][0], inter[1][0])
-#                 riby = (inter[0][1], inter[1][1])
-#                 ribplots.append(ax1.plot(ribx, riby, c='y'))
-#             ax1.imshow(background + 1000*skeletonize(msnake.levelset), cmap=ppl.cm.gray)
-#             ax_u.set_data(msnake.levelset)
-#             fig.canvas.draw()
-    def GenSegs(self):
-        super(self.__class__, self).GenSegs(segLen=1)
+                ribs+=inter
+            super(self.__lass__, self).__init__(ribs)
+    
+    def AvgMidRibLen(self):
+        midIndices = Shape.ListMidIndices(self.segs, denominator=5)
+        return np.mean([seg.length for seg in self.segs[midIndices[0]:midIndices[1]]])
 
 class CapsuleShape(Shape):
-    def __init__(self, points):
-        super(self.__class__, self).__init__(points, close=True)
-
+    close = True
+    resolution = 500
+    
+    def __init__(self, poleShape, ribsShape):
+        #code to make/fit/show capsule
+        radius = ribsShape.AvgMidRibLen()/2.0
+        cens = []
+        capPoints = []
+        for boo in (False, True):
+            cenVec = radius*poleShape.segs[0].GetUnitVec(reverse=boo)
+            cens.append(poleShape.points[1-boo] - cenVec)
+            cen = poleShape.points[1-boo] - cenVec
+            seg = Seg(cen, poleShape.points[1-boo])
+            seg.Rotate(-math.pi/2)
+            capPoints.append(seg.b)
+            capPoints.append(seg.b)
+            angStep = math.pi/500
+            for i in range(500):
+                seg.Rotate(angStep)
+                capPoints.append(seg.b)
+        super(self.__class__, self).__init__(capPoints)
+        
 if __name__=='__main__':
     shapea = Shape(((-15,-15),(20,20)))
     shapeb = Shape(((20,-20),(-15,15)))
