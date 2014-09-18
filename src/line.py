@@ -8,7 +8,7 @@ import numpy as np
 from src import exception
 from transmat import rotation_matrix, translation_matrix
 
-class Seg(object):
+class Line(object):
     def __init__(self, *args):
         self.a = np.array((0,0,0,1), dtype=np.float)
         self.b = np.array((0,0,0,1), dtype=np.float)
@@ -19,11 +19,11 @@ class Seg(object):
             try:
                 args = map(float, args)
             except ValueError or TypeError:
-                raise exception.SegInitError('one of the four args passed to Seg was not a number. Your args were %s' % args)
+                raise exception.SegInitError('one of the four args passed to Line was not a number. Your args were %s' % args)
             self.a[:len(args)/2] = np.array(args[:len(args)/2])
             self.b[:len(args)/2] = np.array(args[len(args)/2:])
         else:
-            raise exception.SegInitError('the arguments passed to Seg should either be two lists of floats ((xa,ya),(xb,yb)) or four to eight floats (xa,yb,xb,yb). Your args were %s' % args)
+            raise exception.SegInitError('the arguments passed to Line should either be two lists of floats ((xa,ya),(xb,yb)) or four to eight floats (xa,yb,xb,yb). Your args were %s' % args)
         self.CalcLength()
     
     def CalcLength(self):
@@ -33,7 +33,7 @@ class Seg(object):
         return self.__class__(self.a, self.b)
     
     def GetIntersect(self, other):
-        '''test if two Seg objects intersect. Returns an array of coordinates if they do, and False otherwise. lord help you if they overlap instead. adapted from http://stackoverflow.com/q/563198/425458'''
+        '''test if two Line objects intersect. Returns an array of coordinates if they do, and False otherwise. lord help you if they overlap instead. adapted from http://stackoverflow.com/q/563198/425458'''
         rcrosss = np.cross((self.b[:3] - self.a[:3]), (other.b[:3] - other.a[:3]))
         if not np.any(rcrosss):
             return False
@@ -55,7 +55,7 @@ class Seg(object):
         return (diff/np.sqrt(np.dot(diff, diff)))
     
     def Reversed(self):
-        return Seg(self.b, self.a)
+        return Line(self.b, self.a)
     
     def Rotate(self, ang, pnt=None):
         if pnt==None:

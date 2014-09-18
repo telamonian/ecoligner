@@ -3,37 +3,43 @@ Created on Jun 20, 2014
 
 @author: tel
 '''
-from src import morphsnakes as ms
+from copy import deepcopy
+from PIL import Image
 import numpy as np
 import os
 import re
-from PIL import Image
 from scipy import ndimage
 import scipy.io as sio
 from skimage import filter
 
+from src import morphsnakes as ms
 from src import shape
 
+threshold = .244
 np.set_printoptions(suppress=True,linewidth=10**6,threshold=10**6)
 
 class Cell(object):
     '''
     A cell object contains a number of Frames attributes named according to the scheme used to name the image files (cell.bf, cell.rfp, etc.)
     Example usage:
-        cell = Cell('exampledata/cell5')    # dirpath is trajectory to image data
+        cell = Cell('exampledata/cell5')    # dirpath is path to image and trajectory data
         cell.bf[1][0].AddContour()          # first index is based on image file name, second index is on a zero-indexed list of Frame objects created from individual frames in image file
     '''
     def __init__(self,dirpath):
         #this loop produces three dictionaries, self.bf, self.conc, self.rfp, that contain the relevant image data in lists of augmented numpy arrays
         walk = os.walk(dirpath).next()
         for fname in walk[2]:
-            typere = re.search('((?:rfp)|(?:conc)|(?:bf))-(\d+)\.tif', fname)
-            if typere:
-                tmp_dict = getattr(self, typere.group(1), {})
-                tmp_dict[int(typere.group(2))] = Frames(os.path.join(walk[0], fname))
-                setattr(self, typere.group(1), tmp_dict)
-            if 'movie1traces.mat' in fname:
-                self.trajectories = Trajectories(os.path.join(walk[0], fname))
+            imgTypeRe = re.search('((?:rfp)|(?:conc)|(?:bf))-(\d+)\.tif', fname)
+            traceRe = re.search('(\S*)(\d+)(\S*).mat', fname)
+            if imgTypeRe:
+                tmp_dict = getattr(self, imgTypeRe.group(1), {})
+                tmp_dict[int(imgTypeRe.group(2))] = Frames(os.path.join(walk[0], fname))
+                setattr(self, imgTypeRe.group(1), tmp_dict)
+            if traceRe:
+                if '_transformed' not in traceRe.group(0):
+                    tmp_dict = getattr(self, 'trajectories', {})
+                    tmp_dict[int(traceRe.group(2))] = Trajectories(os.path.join(walk[0], fname))
+                    setattr(self, 'trajectories', tmp_dict)
                 
 class Frames(object):
     def __init__(self,fpath):
@@ -60,10 +66,7 @@ class Frames(object):
 class Frame(np.ndarray):
     def __new__(subtype,img,dtype=float,buffer=None,offset=0,strides=None,order=None):
         input_arr = np.array(img.getdata()).reshape(img.size[::-1])[::-1]
-        #arr_w_frame = np.zeros(np.array(input_arr.shape)+20) + np.mean(input_arr)
-        #arr_w_frame[10:-10,10:-10] = input_arr
         obj = np.asarray(input_arr).view(subtype)
-        #obj = np.ndarray.__new__(subtype,shape,dtype,buffer,offset,strides,order)
         return obj
     
     def __array_finalize__(self,obj):
@@ -91,7 +94,7 @@ class Frame(np.ndarray):
         
         # Morphological GAC. Initialization of the level-set.
 #         mgac = ms.MorphGAC(gI, smoothing=2, threshold=.244, balloon=-1)
-        mgac = ms.MorphGAC(gI, smoothing=2, threshold=.3, balloon=-1)
+        mgac = ms.MorphGAC(gI, smoothing=2, threshold=threshold, balloon=-1)
         mgac.levelset = ms.circle_levelset(self.shape, np.array(self.shape)/2, max(self.shape)/2.66666, scalerow=.75)
         
         # non-visual evolution
@@ -217,11 +220,9 @@ class Frame(np.ndarray):
 
 class Trajectories(object):
     def __init__(self,fpath):
-        traj = sio.loadmat(fpath)
-        self._trajectories = [coord[0][:,1:3] for coord in traj.itervalues().next()[0,0]['TracksROI']['Coordinates']]
-        for traj in self._trajectories:
-            for i,y in enumerate(traj[:,1]):
-                traj[i,1] = 40 - y
+        self.fpath = fpath
+        trajData = sio.loadmat(self.fpath)
+        self._trajectories = [Trajectory(coord[0][:,1:3], reverseY=40) for coord in trajData.itervalues().next()[0,0]['TracksROI']['Coordinates']]
                 
     def __getitem__(self,i):
         return self._trajectories[i]
@@ -231,19 +232,63 @@ class Trajectories(object):
         
     def append(self,val):
         self._trajectories.append(val)
+    
+    def Plot(self, frame):
+        self.PlotSegs()
+        self.PlotSegsTrans()
+        # add a transformed capsule shape for easy comparison
+        transCap = deepcopy(frame.capsule)
+        transCap.OverlayOnCell(frame.capsule)
+        transCap.PlotConnectedPoints(c='g',lw=12,alpha=.75)
+    
+    def PlotSegs(self, attr='trajShape'):
+        shape.Shape.ResetColor()
+        for traj in self._trajectories:
+            traj.__getattribute__(attr).PlotSegs(c='cycle')
+    
+    def PlotSegsTrans(self):
+        self.PlotSegs('transTrajShape')
+    
+    def SaveTransform(self):
+        outfile = ''.join(self.fpath.split('.')[:-1]) + '_transformed.mat'
+        trajData = sio.loadmat(self.fpath)
+        for coord,traj in zip(trajData.itervalues().next()[0,0]['TracksROI']['Coordinates'], self._trajectories):
+            coord[0][:,1:3] = traj.transTrajShape.points
+        sio.savemat(outfile, trajData)
+    
+    def Transform(self, frame):
+        for traj in self._trajectories:
+            traj.transTrajShape.OverlayOnCell(frame.capsule)
         
-    def AddTraj(self, frame):
-        self.track = shape.Trajectory(self[35])
-        self.transTrack = shape.Trajectory(self[35])
-        self.transTrack.OverlayOnCell(frame.capsule)
-        self.track.PlotSegs(c='c')
-        self.transTrack.PlotSegs()
-        shape._ax0.relim()
-        shape._ax0.autoscale_view(True,True,True)
-        shape.ShowPlot()
+class Trajectory(np.ndarray):
+    def __new__(subtype,path,reverseY=None,dtype=float,buffer=None,offset=0,strides=None,order=None):
+        '''reverseY deals with the situation where the origin of the path is in the upper left corner of the image rather than the lower left. set it to the height of the image'''
+        input_arr = np.array(path)
+        if reverseY:
+            input_arr[:,1] = reverseY - input_arr[:,1]
+        obj = np.asarray(input_arr).view(subtype)
+        return obj
+    
+    def __array_finalize__(self,obj):
+        if obj is None: 
+            return
+        self.trajShape = getattr(obj, 'trajShape', shape.TrajectoryShape(obj.real))
+        self.transTrajShape = getattr(obj, 'transTrajShape', shape.TrajectoryShape(obj.real))
 
 if __name__=='__main__':
-    cell = Cell('exampledata/cell15')
+    threshold = .3 # threshold is the primary parameter that determines how well the segmentation works. A value somewhere between .2 and .3 seems to be good for most cells
+    cellDataDir = 'exampledata/cell15' # path to directory containing cell data. you can batch process multiple cells by using a path to a directory that contains data directories (i.e. 'exampledata'), but probably shouldn't at this point in the program's evolution
+    
+    cell = Cell(cellDataDir)
     cell.bf[1][0].Segment()
     cell.bf[1][0].Plot()
-    cell.trajectories.AddTraj(cell.bf[1][0])
+    for trajList in cell.trajectories.itervalues():
+        trajList.Transform(cell.bf[1][0])
+        trajList.SaveTransform()
+    try:
+        cell.trajectories[1].Plot(cell.bf[1][0])
+    except AttributeError:
+        pass
+    shape.AutoscaleAxes()
+    shape.SavePlot('transformed_trajectories_example.png')
+    #shape.ShowPlot()

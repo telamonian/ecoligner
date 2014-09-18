@@ -4,12 +4,14 @@ Created on Jun 24, 2014
 @author: tel
 '''
 from copy import deepcopy
+import itertools
 import math
 from matplotlib import _cntr as cntr
-import matplotlib.gridspec as gridspec
+from matplotlib import cm
+from matplotlib import gridspec
 from matplotlib import pyplot as __plt
 import numpy as np
-from src.segment import Seg
+from src.line import Line
 from scipy import interpolate
 from skimage.morphology import skeletonize
 
@@ -17,18 +19,21 @@ _plt = __plt
 _fig = _plt.figure(1)
 _ax0 = _plt.subplot(gridspec.GridSpec(1,1,wspace=0.15,hspace=0.07)[0,0])
 
+def AutoscaleAxes():
+    _ax0.relim()
+    _ax0.autoscale_view(True,True,True)
+
 def SetBackground(background):
     _plt.imshow(background, cmap=_plt.cm.gray, origin='lower')
-    
+
+def SavePlot(outfile):
+    _fig.set_size_inches(12,12)
+    _plt.savefig(outfile, bbox_inches='tight')
+
 def ShowPlot():
     _plt.show()
 
 class Shape(object):
-#     __metaclass__ = SharedPltMetaclass
-    
-#     _plt = plt
-#     _fig = plt.figure(1)
-#     _ax0 = plt.subplot(gridspec.GridSpec(1,1,wspace=0.15,hspace=0.07)[0,0])
     
     close = False
     # segLen is the length of the walk that makes up one of the Shape's segs.
@@ -39,21 +44,25 @@ class Shape(object):
         self.points = np.array(points)
         self.GenSegs()
         self.CalcDist()
+
+    @property
+    def ax0(self):
+        return _ax0
     
     @property
-    def plt(self):
-        return _plt
+    def IsClosedLike(self):
+        return self.IsClosed() or self.Dist(self.points[0], self.points[-1]) < self.avgDist + 2*self.stdDist
     
     @property
     def fig(self):
         return _fig
     
     @property
-    def ax0(self):
-        return _ax0
-            
+    def plt(self):
+        return _plt
+    
     def CalcDist(self):
-        if self.segLen==0:
+        if self.segLen==0 or len(self.segs)==0:
             self.maxDist = 0
             self.avgDist = 0
             self.stdDist = 0
@@ -74,15 +83,15 @@ class Shape(object):
         self.segs = []
         if self.segLen < 0:
             for pa,pb in zip(self.points[:-1], self.points[1:]):
-                self.segs.append(Seg(pa, pb))
+                self.segs.append(Line(pa, pb))
             if self.close:
-                self.segs.append(Seg(self.points[-1], self.points[0]))
+                self.segs.append(Line(self.points[-1], self.points[0]))
         elif self.segLen==0:
             pass
         else:
             for i in range(len(self.points))[::self.segLen+1]:
                 for j in range(self.segLen):
-                    self.segs.append(Seg(*self.points[i+j:i+j+2]))
+                    self.segs.append(Line(*self.points[i+j:i+j+2]))
         
     def GetClosest(self, other):
         '''return a list, length len(self.points), of pairs of closest points in self, other in format [[self index, other index], ...]'''
@@ -131,6 +140,8 @@ class Shape(object):
     
     def PlotConnectedPoints(self, c='b', lw=1, alpha=1):
         '''use PlotConnectedPoints instead of PlotSegs if you use alpha!=1 and want to maintain proper transparency throughout your plotted curves'''
+        if c=='cycle':
+            c=self.GetColor()
         (x,y) = zip(*self.points)[:2]
         if self.close:
             x = list(x) + [self.points[0][0]]
@@ -147,11 +158,15 @@ class Shape(object):
         self.plt.show()
     
     def PlotPoints(self, radius=.7, fc='g'):
+        if fc=='cycle':
+            fc=self.GetColor()
         for point in self.points:
             circle = _plt.Circle(point, radius, fc=fc)
             self.ax0.add_patch(circle)
     
     def PlotSegs(self, c='b', lw=1, alpha=1):
+        if c=='cycle':
+            c=self.GetColor()
         for seg in self.segs:
             line = _plt.Line2D(*zip(*seg)[:2], c=c, lw=lw, alpha=alpha)
             self.ax0.add_line(line)
@@ -162,21 +177,43 @@ class Shape(object):
     def Overlay(self, seg0, seg1):
         '''transforms all of the points and segs in self by the transformation matrix that overlays seg0 on seg1.
         currently the section that deals with points only works correctly for shapes with self.segLen = -1'''
-        transMat = Seg.OverlaySegMat(seg0, seg1)
-        # transform segments
-        for seg in self.segs:
-            seg.AffTrans(transMat)
-        # figure out the new set of points from the transformed segments
-        self.points = [seg.a for seg in self.segs]
-        if self.close==False:
-            self.points+=[self.segs[-1].b]
+        transMat = Line.OverlaySegMat(seg0, seg1)
+        # transform points
+        homoPoints = np.zeros((self.points.shape[0],4))
+        homoPoints[:,:2] = self.points[:,:2]
+        homoPoints[:,3] = 1
+        self.points = transMat.dot(homoPoints.T).T[:,:2]
+        # regenerate segments from the newly transformed points
+        self.GenSegs()
+        
+    def OverlayOnCell(self, capsuleShape):
+        self.Overlay(capsuleShape.cenLines[0], Line((0,0),(1,0)))
     
     def __getitem__(self, index):
         return self.points[index]
     
-    @property
-    def IsClosedLike(self):
-        return self.IsClosed() or self.Dist(self.points[0], self.points[-1]) < self.avgDist + 2*self.stdDist
+    @classmethod
+    def GetColor(cls, cmap=cm.rainbow, cycleLen=20):
+        '''gets the next color in a color map. has a persistent state, and will wrap around if it reaches the end'''
+        try:
+            if cmap.name==cls.colorCycleCmap.name and cycleLen==cls.colorCycleLen:
+                return cls.colorCycle.next()
+            else:
+                cls.colorCycleCmap = cmap
+                cls.colorCycleLen = cycleLen
+                cls.colorCycle = itertools.cycle(cls.colorCycleCmap(np.linspace(0, 1, cls.colorCycleLen)))
+                return cls.colorCycle.next()
+        except AttributeError:
+            cls.colorCycleCmap = cmap
+            cls.colorCycleLen = cycleLen
+            cls.colorCycle = itertools.cycle(cls.colorCycleCmap(np.linspace(0, 1, cls.colorCycleLen)))
+            return cls.colorCycle.next()
+    
+    @classmethod
+    def ResetColor(cls, cmap=cm.rainbow, cycleLen=20):
+        cls.colorCycleCmap = getattr(cls, 'colorCycleCmap', cmap)
+        cls.colorCycleLen = getattr(cls, 'colorCycleLen', cycleLen)
+        cls.colorCycle = itertools.cycle(cls.colorCycleCmap(np.linspace(0, 1, cls.colorCycleLen)))
     
     @staticmethod
     def ListMidIndices(lis, denominator):
@@ -285,27 +322,25 @@ class CapsuleShape(Shape):
     def __init__(self, poleShape, ribsShape):
         #code to make/fit/show capsule
         capPoints = []
-        self.cenSegs = []
+        # cenLines is used later to help with the trajectory transforms
+        self.cenLines = []
         self.radius = ribsShape.AvgMidRibLen()/2.0
         for boo in (False, True):
             cenVec = (self.radius*poleShape.segs[0].GetUnitVec(reverse=boo))
-            cen = poleShape.points[1-boo] - cenVec
-            seg = Seg(cen, poleShape.points[1-boo])
-            self.cenSegs.append(deepcopy(seg))
-            seg.Rotate(-math.pi/2)
-            capPoints.append(seg.b)
+            cen = poleShape.points[boo] + cenVec
+            line = Line(cen, poleShape.points[boo])
+            self.cenLines.append(Line(cen, cen + cenVec))
+            line.Rotate(-math.pi/2)
+            capPoints.append(line.b)
             angStep = math.pi/500
             for i in range(500):
-                seg.Rotate(angStep)
-                capPoints.append(seg.b)
+                line.Rotate(angStep)
+                capPoints.append(line.b)
         super(self.__class__, self).__init__(capPoints)
 
-class Trajectory(Shape):
+class TrajectoryShape(Shape):
     def __init__(self, trajPoints):
         super(self.__class__, self).__init__(trajPoints)
-    
-    def OverlayOnCell(self, capsuleShape):
-        self.Overlay(capsuleShape.cenSegs[0].Reversed(), Seg((0,0),(1,0)))
             
 if __name__=='__main__':
     shapea = Shape(((-15,-15),(20,20)))
