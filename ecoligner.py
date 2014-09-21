@@ -283,7 +283,7 @@ class Trajectory(np.ndarray):
         self.transTrajShape = getattr(obj, 'transTrajShape', shape.TrajectoryShape(obj.real))
 
 if __name__=='__main__':
-    threshold = .23 # threshold is the primary parameter that determines how well the segmentation works. A value somewhere between .2 and .3 seems to be good for most cells
+    threshold = .15 # threshold is the primary parameter that determines how well the segmentation works. A value somewhere between .2 and .3 seems to be good for most cells
     while True:
         try:
             cellDataDir = 'exampledata/cell21' # path to directory containing cell data. you can batch process multiple cells by using a path to a directory that contains data directories (i.e. 'exampledata'), but probably shouldn't at this point in the program's evolution
