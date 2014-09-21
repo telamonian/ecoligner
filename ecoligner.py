@@ -145,13 +145,16 @@ class Frame(np.ndarray):
         self.centerLine = shape.CenterShape(self.levelset)
     
     def AddPoles(self):
-        self.poles = shape.PoleShape(self.contour.GetIntersect(self.centerLine))
+        self.poles = shape.PoleShape(self.contour, self.centerLine)
     
     def AddRibs(self):
         self.ribs = shape.RibsShape(self.contour, self.centerLine, self.poles)
     
     def AddCapsule(self):
         self.capsule = shape.CapsuleShape(self.poles, self.ribs)
+        
+    def AddCapsuleRibs(self):
+        self.capsuleRibs = shape.RibsShape(self.capsule, self.centerLine, self.poles)
 
     def AddContour1(self):
         num_iters = 5
@@ -209,8 +212,12 @@ class Frame(np.ndarray):
         self.AddPoles()
         self.AddRibs()
         self.AddCapsule()
+        self.AddCapsuleRibs()
         
     def Plot(self):
+        print 'threshold: %.3f' % threshold
+        print 'quality: %.3f' % self.ribs.Quality(self.capsuleRibs)
+        print 'length/width ratio: %.3f' % (float(self.poles.lines[0].length)/self.capsule.radius)
         self.contour.PlotSegs(c='r',lw=2)
         self.centerLine.PlotSegs()
         self.poles.PlotPoints()
@@ -276,19 +283,28 @@ class Trajectory(np.ndarray):
         self.transTrajShape = getattr(obj, 'transTrajShape', shape.TrajectoryShape(obj.real))
 
 if __name__=='__main__':
-    threshold = .3 # threshold is the primary parameter that determines how well the segmentation works. A value somewhere between .2 and .3 seems to be good for most cells
-    cellDataDir = 'exampledata/cell15' # path to directory containing cell data. you can batch process multiple cells by using a path to a directory that contains data directories (i.e. 'exampledata'), but probably shouldn't at this point in the program's evolution
-    
-    cell = Cell(cellDataDir)
-    cell.bf[1][0].Segment()
-    cell.bf[1][0].Plot()
-    for trajList in cell.trajectories.itervalues():
-        trajList.Transform(cell.bf[1][0])
-        trajList.SaveTransform()
-    try:
-        cell.trajectories[1].Plot(cell.bf[1][0])
-    except AttributeError:
-        pass
-    shape.AutoscaleAxes()
-    shape.SavePlot('transformed_trajectories_example.png')
-    #shape.ShowPlot()
+    threshold = .23 # threshold is the primary parameter that determines how well the segmentation works. A value somewhere between .2 and .3 seems to be good for most cells
+    while True:
+        try:
+            cellDataDir = 'exampledata/cell21' # path to directory containing cell data. you can batch process multiple cells by using a path to a directory that contains data directories (i.e. 'exampledata'), but probably shouldn't at this point in the program's evolution
+            
+            cell = Cell(cellDataDir)
+            cell.bf[1][0].Segment()
+            cell.bf[1][0].Plot()
+            try:
+                for trajList in cell.trajectories.itervalues():
+                    trajList.Transform(cell.bf[1][0])
+                    trajList.SaveTransform()
+            except AttributeError:
+                pass
+            try:
+                cell.trajectories[1].Plot(cell.bf[1][0])
+            except AttributeError:
+                pass
+            #shape.AutoscaleAxes()
+            shape.SetBackground(cell.bf[1][0])
+            shape.SavePlot(os.path.join(cellDataDir,'segmented.png'))
+            #shape.ShowPlot()
+            break
+        except IndexError:
+            threshold+=.01

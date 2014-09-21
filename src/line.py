@@ -27,13 +27,14 @@ class Line(object):
         self.CalcLength()
     
     def CalcLength(self):
-        self.length = np.sqrt(np.sum((self.a - self.b)**2))
+        self.length = self.GetLength()
         
     def Copy(self):
         return self.__class__(self.a, self.b)
     
     def GetIntersect(self, other):
-        '''test if two Line objects intersect. Returns an array of coordinates if they do, and False otherwise. lord help you if they overlap instead. adapted from http://stackoverflow.com/q/563198/425458'''
+        '''test if two Line objects intersect. Returns an array of coordinates if they do, and False otherwise. lord help you if they overlap instead. adapted from http://stackoverflow.com/q/563198/425458
+        if one segment of an (apparently) straight line ends on a line you're testing for intersections, and another segment of the first line then starts where the last ended, then both will be regarded as intersecting'''
         rcrosss = np.cross((self.b[:3] - self.a[:3]), (other.b[:3] - other.a[:3]))
         if not np.any(rcrosss):
             return False
@@ -43,6 +44,9 @@ class Line(object):
             return self.a + t*(self.b - self.a)
         else:
             return False
+        
+    def GetLength(self):
+        return np.sqrt(np.sum((self.b - self.a)**2))
 
     def GetSlope(self):
         return (self.b[0] - self.a[0])/(self.b[1] - self.a[1])
