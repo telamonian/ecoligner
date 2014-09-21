@@ -295,9 +295,6 @@ if __name__=='__main__':
                 for trajList in cell.trajectories.itervalues():
                     trajList.Transform(cell.bf[1][0])
                     trajList.SaveTransform()
-            except AttributeError:
-                pass
-            try:
                 cell.trajectories[1].Plot(cell.bf[1][0])
             except AttributeError:
                 pass
